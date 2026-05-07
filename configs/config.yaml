@@ -44,15 +44,15 @@ elasticsearch:
 
 # Embedding model config
 embedding:
-  model: "text-embedding-v4"
+  model: "qwen3-embedding:0.6b"
   api_key: ""
-  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-  dimensions: 2048
+  base_url: "http://localhost:11434/v1"
+  dimensions: 1024
 
 # LLM config
 llm:
-  base_url: "https://api.deepseek.com/v1"  # 本地是 http://localhost:11434/v1 官方：https://api.deepseek.com/v1
-  model: deepseek-chat  # 本地: deepseek-r1:7b, 官方: deepseek-chat
+  base_url: "http://localhost:11434/v1"  # 本地是 http://localhost:11434/v1 官方：https://api.deepseek.com/v1
+  model: qwen2.5:3b  # 本地: qwen2.5:3b, 官方: deepseek-chat
   api_key: ""
   rag_mode: "strict"  # RAG模式: "strict"(严格模式-仅用知识库) 或 "flexible"(灵活模式-可用大模型知识)
   prompt:

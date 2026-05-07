@@ -61,7 +61,9 @@ func (c *openAICompatibleClient) CreateEmbedding(ctx context.Context, text strin
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	if c.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

@@ -39,5 +39,7 @@ declare namespace StorageType {
     };
     /** The last login user id */
     lastLoginUserId: number;
+    /** The chat rag mode */
+    chatRagMode?: 'strict' | 'flexible';
   }
 }

@@ -21,7 +21,7 @@ import (
 var ESClient *elasticsearch.Client
 
 // InitES 初始化 Elasticsearch 客户端
-func InitES(esCfg config.ElasticsearchConfig) error {
+func InitES(esCfg config.ElasticsearchConfig, embeddingCfg config.EmbeddingConfig) error {
 	cfg := elasticsearch.Config{
 		Addresses: []string{esCfg.Addresses},
 		Username:  esCfg.Username,
@@ -35,11 +35,11 @@ func InitES(esCfg config.ElasticsearchConfig) error {
 		return err
 	}
 	ESClient = client
-	return createIndexIfNotExists(esCfg.IndexName)
+	return createIndexIfNotExists(esCfg.IndexName, embeddingCfg.Dimensions)
 }
 
 // createIndexIfNotExists 检查索引是否存在，如果不存在则创建它
-func createIndexIfNotExists(indexName string) error {
+func createIndexIfNotExists(indexName string, vectorDims int) error {
 	res, err := ESClient.Indices.Exists([]string{indexName})
 	if err != nil {
 		log.Errorf("检查索引是否存在时出错: %v", err)
@@ -56,9 +56,13 @@ func createIndexIfNotExists(indexName string) error {
 		return fmt.Errorf("检查索引是否存在时收到意外的状态码: %d", res.StatusCode)
 	}
 
+	if vectorDims <= 0 {
+		vectorDims = 2048
+	}
+
 	// 完全对齐 Java 项目的 knowledge_base.json 结构
-	// 使用 ik 中文分词器，并指定向量维度为 2048 和 cosine 相似度
-	mapping := `{
+	// 使用 ik 中文分词器，并指定向量维度和 cosine 相似度
+	mapping := fmt.Sprintf(`{
 		"mappings": {
 			"properties": {
 				"vector_id": { "type": "keyword" },
@@ -71,7 +75,7 @@ func createIndexIfNotExists(indexName string) error {
 				},
 				"vector": {
 					"type": "dense_vector",
-					"dims": 2048,
+					"dims": %d,
 					"index": true,
 					"similarity": "cosine"
 				},
@@ -81,7 +85,7 @@ func createIndexIfNotExists(indexName string) error {
 				"is_public": { "type": "boolean" }
 			}
 		}
-	}`
+	}`, vectorDims)
 
 	res, err = ESClient.Indices.Create(
 		indexName,

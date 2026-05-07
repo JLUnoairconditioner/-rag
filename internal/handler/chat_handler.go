@@ -34,6 +34,13 @@ type ChatHandler struct {
 	stopFlags sync.Map // key: session pointer string, value: bool
 }
 
+type chatPayload struct {
+	Type             string `json:"type"`
+	Content          string `json:"content"`
+	RagMode          string `json:"rag_mode"`
+	InternalCmdToken string `json:"_internal_cmd_token"`
+}
+
 // NewChatHandler 创建一个新的 ChatHandler。
 func NewChatHandler(chatService service.ChatService, userService service.UserService, jwtManager *token.JWTManager) *ChatHandler {
 	return &ChatHandler{
@@ -86,31 +93,35 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 		}
 		log.Infof("收到 WebSocket 消息: %s", string(message))
 
-		// 1) JSON 停止指令: {"type":"stop","_internal_cmd_token":"..."}
-		var ctrl map[string]interface{}
+		// 1) JSON 指令或聊天消息
+		chatContent := string(message)
+		ragModeOverride := ""
 		if len(message) > 0 && message[0] == '{' {
-			if err := json.Unmarshal(message, &ctrl); err == nil {
-				if t, ok := ctrl["type"].(string); ok && t == "stop" {
-					if tok, ok := ctrl["_internal_cmd_token"].(string); ok {
-						h.stopTokenLock.Lock()
-						valid := (tok == h.stopToken)
-						h.stopTokenLock.Unlock()
-						if valid {
-							// 设置停止标志
-							key := sessionKey(conn)
-							h.stopFlags.Store(key, true)
-							// 回发停止确认
-							resp := map[string]interface{}{
-								"type":      "stop",
-								"message":   "响应已停止",
-								"timestamp": time.Now().UnixMilli(),
-								"date":      time.Now().Format("2006-01-02T15:04:05"),
-							}
-							b, _ := json.Marshal(resp)
-							_ = conn.WriteMessage(websocket.TextMessage, b)
-							continue
+			var payload chatPayload
+			if err := json.Unmarshal(message, &payload); err == nil {
+				if payload.Type == "stop" {
+					h.stopTokenLock.Lock()
+					valid := (payload.InternalCmdToken == h.stopToken)
+					h.stopTokenLock.Unlock()
+					if valid {
+						// 设置停止标志
+						key := sessionKey(conn)
+						h.stopFlags.Store(key, true)
+						// 回发停止确认
+						resp := map[string]interface{}{
+							"type":      "stop",
+							"message":   "响应已停止",
+							"timestamp": time.Now().UnixMilli(),
+							"date":      time.Now().Format("2006-01-02T15:04:05"),
 						}
+						b, _ := json.Marshal(resp)
+						_ = conn.WriteMessage(websocket.TextMessage, b)
+						continue
 					}
+				}
+				if payload.Type == "chat" && payload.Content != "" {
+					chatContent = payload.Content
+					ragModeOverride = payload.RagMode
 				}
 			}
 		}
@@ -134,7 +145,7 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 		}
 		// 清除旧标志
 		h.stopFlags.Delete(sessionKey(conn))
-		err = h.chatService.StreamResponse(c.Request.Context(), string(message), user, conn, shouldStop)
+		err = h.chatService.StreamResponse(c.Request.Context(), chatContent, user, conn, shouldStop, ragModeOverride)
 		if err != nil {
 			log.Errorf("处理流式响应失败: %v", err)
 			// 统一 JSON 错误

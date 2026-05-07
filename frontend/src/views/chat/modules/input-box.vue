@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const chatStore = useChatStore();
-const { input, list, wsStatus, wsData } = storeToRefs(chatStore);
+const { input, list, wsStatus, wsData, ragMode } = storeToRefs(chatStore);
 
 const latestMessage = computed(() => {
   return list.value[list.value.length - 1] ?? {};
@@ -46,7 +46,13 @@ const handleSend = async () => {
     content: input.value.message,
     role: 'user'
   });
-  chatStore.wsSend(input.value.message);
+  chatStore.wsSend(
+    JSON.stringify({
+      type: 'chat',
+      content: input.value.message,
+      rag_mode: ragMode.value
+    })
+  );
   list.value.push({
     content: '',
     role: 'assistant',
@@ -96,7 +102,14 @@ const handShortcut = (e: KeyboardEvent) => {
       @keydown="handShortcut"
     />
     <div class="flex items-center justify-between pt-2">
-      <div class="flex items-center text-18px color-gray-500">
+      <div class="flex items-center gap-4 text-18px color-gray-500">
+        <div class="flex items-center gap-2">
+          <NText class="text-14px">模式：</NText>
+          <NRadioGroup v-model:value="ragMode" size="small">
+            <NRadio value="strict">严格</NRadio>
+            <NRadio value="flexible">灵活</NRadio>
+          </NRadioGroup>
+        </div>
         <NText class="text-14px">连接状态：</NText>
         <icon-eos-icons:loading v-if="wsStatus === 'CONNECTING'" class="color-yellow" />
         <icon-fluent:plug-connected-checkmark-20-filled v-else-if="wsStatus === 'OPEN'" class="color-green" />

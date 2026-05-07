@@ -66,6 +66,16 @@ func Infof(template string, args ...interface{}) {
 	sugar.Infof(template, args...)
 }
 
+// Debug 记录一条 debug 级别的日志
+func Debug(msg string) {
+	sugar.Debug(msg)
+}
+
+// Debugf 使用格式化字符串记录一条 debug 级别的日志
+func Debugf(template string, args ...interface{}) {
+	sugar.Debugf(template, args...)
+}
+
 // Infow 使用键值对记录一条 info 级别的结构化日志。
 // 这是记录复杂上下文信息的首选方法。
 func Infow(msg string, keysAndValues ...interface{}) {

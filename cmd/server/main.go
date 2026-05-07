@@ -47,7 +47,7 @@ func main() {
 	database.InitMySQL(cfg.Database.MySQL.DSN)
 	database.InitRedis(cfg.Database.Redis.Addr, cfg.Database.Redis.Password, cfg.Database.Redis.DB)
 	storage.InitMinIO(cfg.MinIO)
-	err := es.InitES(cfg.Elasticsearch)
+	err := es.InitES(cfg.Elasticsearch, cfg.Embedding)
 	if err != nil {
 		log.Errorf("es 初始化失败 %s", err)
 		return

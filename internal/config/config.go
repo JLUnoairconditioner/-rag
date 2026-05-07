@@ -76,10 +76,11 @@ type TikaConfig struct {
 
 // ElasticsearchConfig 存储 Elasticsearch 相关的配置。
 type ElasticsearchConfig struct {
-	Addresses string `mapstructure:"addresses"`
-	Username  string `mapstructure:"username"`
-	Password  string `mapstructure:"password"`
-	IndexName string `mapstructure:"index_name"`
+	Addresses         string  `mapstructure:"addresses"`
+	Username          string  `mapstructure:"username"`
+	Password          string  `mapstructure:"password"`
+	IndexName         string  `mapstructure:"index_name"`
+	MinRelevanceScore float64 `mapstructure:"min_relevance_score"`
 }
 
 // MinIOConfig 存储 MinIO 对象存储的配置。
@@ -104,6 +105,7 @@ type LLMConfig struct {
 	APIKey     string              `mapstructure:"api_key"`
 	BaseURL    string              `mapstructure:"base_url"`
 	Model      string              `mapstructure:"model"`
+	RAGMode    string              `mapstructure:"rag_mode"`
 	Generation LLMGenerationConfig `mapstructure:"generation"`
 	Prompt     LLMPromptConfig     `mapstructure:"prompt"`
 }
@@ -117,10 +119,12 @@ type LLMGenerationConfig struct {
 
 // LLMPromptConfig 配置系统提示与上下文包裹格式（可选）。
 type LLMPromptConfig struct {
-	Rules        string `mapstructure:"rules"`
-	RefStart     string `mapstructure:"ref_start"`
-	RefEnd       string `mapstructure:"ref_end"`
-	NoResultText string `mapstructure:"no_result_text"`
+	Rules         string `mapstructure:"rules"`
+	RulesStrict   string `mapstructure:"rules_strict"`
+	RulesFlexible string `mapstructure:"rules_flexible"`
+	RefStart      string `mapstructure:"ref_start"`
+	RefEnd        string `mapstructure:"ref_end"`
+	NoResultText  string `mapstructure:"no_result_text"`
 }
 
 // AIConfig 对齐 Java 的 ai.prompt/ai.generation（连字符键）

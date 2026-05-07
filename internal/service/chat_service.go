@@ -18,7 +18,14 @@ import (
 
 // ChatService 定义了聊天操作的接口。
 type ChatService interface {
-	StreamResponse(ctx context.Context, query string, user *model.User, ws *websocket.Conn, shouldStop func() bool) error
+	StreamResponse(
+		ctx context.Context,
+		query string,
+		user *model.User,
+		ws *websocket.Conn,
+		shouldStop func() bool,
+		ragModeOverride string,
+	) error
 }
 
 type chatService struct {
@@ -37,7 +44,14 @@ func NewChatService(searchService SearchService, llmClient llm.Client, conversat
 }
 
 // StreamResponse 协调 RAG 流程并流式传输 LLM 响应。
-func (s *chatService) StreamResponse(ctx context.Context, query string, user *model.User, ws *websocket.Conn, shouldStop func() bool) error {
+func (s *chatService) StreamResponse(
+	ctx context.Context,
+	query string,
+	user *model.User,
+	ws *websocket.Conn,
+	shouldStop func() bool,
+	ragModeOverride string,
+) error {
 	// 1. 使用 SearchService 检索上下文（提升覆盖度：topK=10）
 	results, err := s.searchService.HybridSearch(ctx, query, 10, user)
 	if err != nil {
@@ -45,10 +59,7 @@ func (s *chatService) StreamResponse(ctx context.Context, query string, user *mo
 	}
 
 	// 获取 RAG 模式
-	ragMode := config.Conf.LLM.RAGMode
-	if ragMode == "" {
-		ragMode = "strict" // 默认严格模式
-	}
+	ragMode := resolveRagMode(ragModeOverride)
 
 	// 发送检索结果元数据（答案来源标记）
 	hasKnowledge := len(results) > 0
@@ -61,7 +72,7 @@ func (s *chatService) StreamResponse(ctx context.Context, query string, user *mo
 	}
 	metadataBytes, _ := json.Marshal(metadataMsg)
 	ws.WriteMessage(websocket.TextMessage, metadataBytes)
-	
+
 	if hasKnowledge {
 		log.Infof("[ChatService] 找到 %d 条相关知识库内容", len(results))
 	} else {
@@ -74,7 +85,7 @@ func (s *chatService) StreamResponse(ctx context.Context, query string, user *mo
 
 	// 2. 构建上下文与 system 消息、历史
 	contextText := s.buildContextText(results)
-	systemMsg := s.buildSystemMessage(contextText)
+	systemMsg := s.buildSystemMessage(contextText, ragMode)
 	history, err := s.loadHistory(ctx, user.ID)
 	if err != nil {
 		log.Errorf("Failed to load conversation history: %v", err)
@@ -123,6 +134,17 @@ func getMetadataMessage(hasKnowledge bool, ragMode string) string {
 	return "知识库中未找到相关内容，AI 将提示无法回答"
 }
 
+func resolveRagMode(ragModeOverride string) string {
+	mode := strings.ToLower(strings.TrimSpace(ragModeOverride))
+	if mode != "strict" && mode != "flexible" {
+		mode = strings.ToLower(strings.TrimSpace(config.Conf.LLM.RAGMode))
+	}
+	if mode == "" {
+		mode = "strict"
+	}
+	return mode
+}
+
 // buildPrompt 根据用户输入和搜索结果构建prompt
 func (s *chatService) buildContextText(searchResults []model.SearchResponseDTO) string {
 	if len(searchResults) == 0 {
@@ -145,13 +167,7 @@ func (s *chatService) buildContextText(searchResults []model.SearchResponseDTO) 
 	return contextBuilder.String()
 }
 
-func (s *chatService) buildSystemMessage(contextText string) string {
-	// 获取 RAG 模式
-	ragMode := config.Conf.LLM.RAGMode
-	if ragMode == "" {
-		ragMode = "strict" // 默认严格模式
-	}
-	
+func (s *chatService) buildSystemMessage(contextText string, ragMode string) string {
 	// 根据模式选择规则
 	var rules string
 	// 优先使用 Java 风格 ai.prompt；若缺失则回退 llm.prompt
@@ -166,12 +182,12 @@ func (s *chatService) buildSystemMessage(contextText string) string {
 			rules = config.Conf.LLM.Prompt.RulesStrict
 		}
 	}
-	
+
 	// 向后兼容：如果没有设置模式特定的规则，使用通用规则
 	if rules == "" {
 		rules = config.Conf.LLM.Prompt.Rules
 	}
-	
+
 	refStart := config.Conf.AI.Prompt.RefStart
 	if refStart == "" {
 		refStart = config.Conf.LLM.Prompt.RefStart
