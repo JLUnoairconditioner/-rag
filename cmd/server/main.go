@@ -14,6 +14,7 @@ import (
 	"pai-smart-go/internal/config"
 	"pai-smart-go/internal/handler"
 	"pai-smart-go/internal/middleware"
+	"pai-smart-go/internal/model"
 	"pai-smart-go/internal/pipeline"
 	"pai-smart-go/internal/repository"
 	"pai-smart-go/internal/service"
@@ -60,6 +61,13 @@ func main() {
 	uploadRepo := repository.NewUploadRepository(database.DB, database.RDB)
 	conversationRepo := repository.NewConversationRepository(database.RDB)
 	docVectorRepo := repository.NewDocumentVectorRepository(database.DB)
+	persistentConvRepo := repository.NewPersistentConversationRepository(database.DB)
+
+	// AutoMigrate 确保 conversations 表结构存在
+	if err := database.DB.AutoMigrate(&model.Conversation{}); err != nil {
+		log.Errorf("AutoMigrate conversations 表失败: %s", err)
+		return
+	}
 
 	// 5. 初始化 Service (依赖注入)
 	jwtManager := token.NewJWTManager(cfg.JWT.Secret, cfg.JWT.AccessTokenExpireHours, cfg.JWT.RefreshTokenExpireDays)
@@ -67,12 +75,12 @@ func main() {
 	embeddingClient := embedding.NewClient(cfg.Embedding)
 	llmClient := llm.NewClient(cfg.LLM)
 	userService := service.NewUserService(userRepository, orgTagRepo, jwtManager)
-	adminService := service.NewAdminService(orgTagRepo, userRepository, conversationRepo)
+	adminService := service.NewAdminService(orgTagRepo, userRepository, conversationRepo, persistentConvRepo)
 	uploadService := service.NewUploadService(uploadRepo, userRepository, cfg.MinIO)
 	documentService := service.NewDocumentService(uploadRepo, userRepository, orgTagRepo, cfg.MinIO, tikaClient)
 	searchService := service.NewSearchService(embeddingClient, es.ESClient, userService, uploadRepo)
-	conversationService := service.NewConversationService(conversationRepo)
-	chatService := service.NewChatService(searchService, llmClient, conversationRepo)
+	conversationService := service.NewConversationService(conversationRepo, persistentConvRepo)
+	chatService := service.NewChatService(searchService, llmClient, conversationRepo, persistentConvRepo)
 
 	// 6. 初始化文件处理管道 (Processor)
 	processor := pipeline.NewProcessor(

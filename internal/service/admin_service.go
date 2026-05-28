@@ -56,17 +56,19 @@ type AdminService interface {
 
 // adminService 是 AdminService 接口的实现。
 type adminService struct {
-	orgTagRepo       repository.OrgTagRepository
-	userRepo         repository.UserRepository
-	conversationRepo repository.ConversationRepository
+	orgTagRepo         repository.OrgTagRepository
+	userRepo           repository.UserRepository
+	conversationRepo   repository.ConversationRepository
+	persistentConvRepo repository.PersistentConversationRepository
 }
 
 // NewAdminService 创建一个新的 AdminService 实例。
-func NewAdminService(orgTagRepo repository.OrgTagRepository, userRepo repository.UserRepository, conversationRepo repository.ConversationRepository) AdminService {
+func NewAdminService(orgTagRepo repository.OrgTagRepository, userRepo repository.UserRepository, conversationRepo repository.ConversationRepository, persistentConvRepo repository.PersistentConversationRepository) AdminService {
 	return &adminService{
-		orgTagRepo:       orgTagRepo,
-		userRepo:         userRepo,
-		conversationRepo: conversationRepo,
+		orgTagRepo:         orgTagRepo,
+		userRepo:           userRepo,
+		conversationRepo:   conversationRepo,
+		persistentConvRepo: persistentConvRepo,
 	}
 }
 
@@ -232,64 +234,42 @@ func (s *adminService) ListUsers(page, size int) (*UserListResponse, error) {
 
 // GetAllConversations retrieves conversation histories for all or a specific user, with optional date filtering.
 func (s *adminService) GetAllConversations(ctx context.Context, userID *uint, startTime, endTime *time.Time) ([]map[string]interface{}, error) {
-	var allConversations []map[string]interface{}
+	var records []*model.Conversation
+	var err error
+
 	if userID != nil {
-		user, err := s.userRepo.FindByID(*userID)
-		if err != nil {
+		if _, err = s.userRepo.FindByID(*userID); err != nil {
 			return nil, errors.New("user not found")
 		}
-		return s.getConversationsForUser(ctx, user, startTime, endTime)
+		records, err = s.persistentConvRepo.FindByUserID(ctx, *userID, startTime, endTime)
+	} else {
+		records, err = s.persistentConvRepo.FindAll(ctx, startTime, endTime)
 	}
-
-	mappings, err := s.conversationRepo.GetAllUserConversationMappings(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user conversation mappings from redis: %w", err)
+		return nil, fmt.Errorf("failed to query conversations: %w", err)
 	}
 
-	for uid := range mappings {
-		user, err := s.userRepo.FindByID(uid)
-		if err != nil {
-			continue
-		}
-		userConversations, err := s.getConversationsForUser(ctx, user, startTime, endTime)
-		if err != nil {
-			continue
-		}
-		allConversations = append(allConversations, userConversations...)
+	// 批量查询用户名
+	userIDSet := make(map[uint]struct{})
+	for _, r := range records {
+		userIDSet[r.UserID] = struct{}{}
 	}
-	return allConversations, nil
-}
-
-func (s *adminService) getConversationsForUser(ctx context.Context, user *model.User, startTime, endTime *time.Time) ([]map[string]interface{}, error) {
-	conversationID, err := s.conversationRepo.GetOrCreateConversationID(ctx, user.ID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == "redis: nil" {
-			return []map[string]interface{}{}, nil
+	usernameMap := make(map[uint]string)
+	for uid := range userIDSet {
+		u, ferr := s.userRepo.FindByID(uid)
+		if ferr == nil {
+			usernameMap[uid] = u.Username
 		}
-		return nil, fmt.Errorf("failed to get conversation id: %w", err)
 	}
 
-	history, err := s.conversationRepo.GetConversationHistory(ctx, conversationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get conversation history: %w", err)
+	result := make([]map[string]interface{}, 0, len(records)*2)
+	for _, r := range records {
+		username := usernameMap[r.UserID]
+		ts := r.CreatedAt.Format("2006-01-02T15:04:05")
+		result = append(result,
+			map[string]interface{}{"username": username, "role": "user", "content": r.Question, "timestamp": ts},
+			map[string]interface{}{"username": username, "role": "assistant", "content": r.Answer, "timestamp": ts},
+		)
 	}
-
-	var userConversations []map[string]interface{}
-	for _, msg := range history {
-		// Time filtering
-		if startTime != nil && msg.Timestamp.Before(*startTime) {
-			continue
-		}
-		if endTime != nil && msg.Timestamp.After(*endTime) {
-			continue
-		}
-
-		userConversations = append(userConversations, map[string]interface{}{
-			"username":  user.Username,
-			"role":      msg.Role,
-			"content":   msg.Content,
-			"timestamp": msg.Timestamp.Format("2006-01-02T15:04:05"),
-		})
-	}
-	return userConversations, nil
+	return result, nil
 }

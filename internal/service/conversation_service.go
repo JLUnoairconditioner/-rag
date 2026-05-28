@@ -14,24 +14,32 @@ type ConversationService interface {
 }
 
 type conversationService struct {
-	repo repository.ConversationRepository
+	repo           repository.ConversationRepository
+	persistentRepo repository.PersistentConversationRepository
 }
 
 // NewConversationService 创建一个新的 ConversationService。
-func NewConversationService(repo repository.ConversationRepository) ConversationService {
-	return &conversationService{repo: repo}
+func NewConversationService(repo repository.ConversationRepository, persistentRepo repository.PersistentConversationRepository) ConversationService {
+	return &conversationService{repo: repo, persistentRepo: persistentRepo}
 }
 
-// GetConversationHistory 获取用户当前会话的完整消息历史。
+// GetConversationHistory 从 MySQL 读取用户全量历史并转换为 ChatMessage 列表。
 func (s *conversationService) GetConversationHistory(ctx context.Context, userID uint) ([]model.ChatMessage, error) {
-	conversationID, err := s.repo.GetOrCreateConversationID(ctx, userID)
+	records, err := s.persistentRepo.FindByUserID(ctx, userID, nil, nil)
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.GetConversationHistory(ctx, conversationID)
+	messages := make([]model.ChatMessage, 0, len(records)*2)
+	for _, r := range records {
+		messages = append(messages,
+			model.ChatMessage{Role: "user", Content: r.Question, Timestamp: r.CreatedAt},
+			model.ChatMessage{Role: "assistant", Content: r.Answer, Timestamp: r.CreatedAt},
+		)
+	}
+	return messages, nil
 }
 
-// AddMessageToConversation 将一条消息添加到用户的对话历史中。
+// AddMessageToConversation 将一条消息添加到用户的对话历史中（Redis 上下文窗口）。
 func (s *conversationService) AddMessageToConversation(ctx context.Context, userID uint, message model.ChatMessage) error {
 	conversationID, err := s.repo.GetOrCreateConversationID(ctx, userID)
 	if err != nil {

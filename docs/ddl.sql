@@ -63,6 +63,18 @@ CREATE TABLE document_vectors (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档向量存储表';
 
 
+CREATE TABLE conversations (
+                               id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+                               user_id BIGINT NOT NULL COMMENT '用户ID',
+                               question TEXT NOT NULL COMMENT '用户问题',
+                               answer TEXT NOT NULL COMMENT '助手回答',
+                               created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                               INDEX idx_user_id (user_id),
+                               INDEX idx_created_at (created_at),
+                               FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='对话历史持久化表';
+
+
 INSERT INTO users (username, password, role) VALUES ('admin', '$2a$10$CuNbcCAjuZPTu/VnBT/kgeU4Pu.bcEo23GJxvugZt/3yTQ8iIF4hC', 'ADMIN');
 INSERT INTO users (username, password, role) VALUES ('testuser', '$2a$10$zUiAOXogIuHnNyR7vf8Q3usknDJcvmbc.36Kl2iC0gdAWyrecoGZa', 'USER');
 

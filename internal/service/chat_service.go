@@ -29,17 +29,19 @@ type ChatService interface {
 }
 
 type chatService struct {
-	searchService    SearchService
-	llmClient        llm.Client
-	conversationRepo repository.ConversationRepository
+	searchService      SearchService
+	llmClient          llm.Client
+	conversationRepo   repository.ConversationRepository
+	persistentConvRepo repository.PersistentConversationRepository
 }
 
 // NewChatService 创建一个新的 ChatService 实例。
-func NewChatService(searchService SearchService, llmClient llm.Client, conversationRepo repository.ConversationRepository) ChatService {
+func NewChatService(searchService SearchService, llmClient llm.Client, conversationRepo repository.ConversationRepository, persistentConvRepo repository.PersistentConversationRepository) ChatService {
 	return &chatService{
-		searchService:    searchService,
-		llmClient:        llmClient,
-		conversationRepo: conversationRepo,
+		searchService:      searchService,
+		llmClient:          llmClient,
+		conversationRepo:   conversationRepo,
+		persistentConvRepo: persistentConvRepo,
 	}
 }
 
@@ -242,8 +244,9 @@ func (s *chatService) composeMessages(systemMsg string, history []model.ChatMess
 	return msgs
 }
 
-// addMessageToConversation 是一个用于管理 Redis 中对话历史的辅助函数。
+// addMessageToConversation 将对话同时写入 Redis（上下文窗口）和 MySQL（持久化）。
 func (s *chatService) addMessageToConversation(ctx context.Context, userID uint, question, answer string) error {
+	// 写 Redis：维护 LLM 上下文窗口
 	conversationID, err := s.conversationRepo.GetOrCreateConversationID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get or create conversation ID: %w", err)
@@ -254,21 +257,20 @@ func (s *chatService) addMessageToConversation(ctx context.Context, userID uint,
 		return fmt.Errorf("failed to get conversation history: %w", err)
 	}
 
-	// 添加用户消息
-	history = append(history, model.ChatMessage{
-		Role:      "user",
-		Content:   question,
-		Timestamp: time.Now(),
-	})
+	now := time.Now()
+	history = append(history, model.ChatMessage{Role: "user", Content: question, Timestamp: now})
+	history = append(history, model.ChatMessage{Role: "assistant", Content: answer, Timestamp: now})
 
-	// 添加助手消息
-	history = append(history, model.ChatMessage{
-		Role:      "assistant",
-		Content:   answer,
-		Timestamp: time.Now(),
-	})
+	if err := s.conversationRepo.UpdateConversationHistory(ctx, conversationID, history); err != nil {
+		return fmt.Errorf("failed to update redis conversation history: %w", err)
+	}
 
-	return s.conversationRepo.UpdateConversationHistory(ctx, conversationID, history)
+	// 写 MySQL：持久化完整 Q&A 对
+	if err := s.persistentConvRepo.Save(ctx, userID, question, answer); err != nil {
+		return fmt.Errorf("failed to persist conversation to mysql: %w", err)
+	}
+
+	return nil
 }
 
 // wsWriterInterceptor 是对 websocket.Conn 的封装，用于捕获写入的消息。
